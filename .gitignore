@@ -1,0 +1,111 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual environments
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+.python-version
+
+# Environment variables
+.env.local
+.env.production
+.env.staging
+*.env
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.nox/
+coverage.xml
+*.cover
+.hypothesis/
+nosetests.xml
+test-results/
+
+# MLflow
+mlruns/
+mlartifacts/
+
+# Jupyter
+.ipynb_checkpoints
+*.ipynb_checkpoints/
+
+# Node / Frontend
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+dist/
+build/
+.next/
+.nuxt/
+.cache/
+
+# Docker
+*.log
+
+# Kubernetes secrets
+kubernetes/secrets*.yaml
+
+# Data & Models
+data/
+*.pkl
+*.joblib
+*.h5
+*.pt
+*.pth
+*.onnx
+incoming/
+chroma_db/
+uploads/
+
+# Reports
+reports/
+*.html
+!frontend/**/*.html
+
+# Alembic
+alembic/versions/*.pyc
+
+# Misc
+*.bak
+*.tmp
+.DS_Store
+Thumbs.db

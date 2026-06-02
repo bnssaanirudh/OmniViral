@@ -1,0 +1,28 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: omniviral-config
+  namespace: omniviral
+data:
+  APP_NAME: "OmniViral"
+  APP_ENV: "production"
+  APP_HOST: "0.0.0.0"
+  APP_PORT: "8000"
+  DEBUG: "false"
+  POSTGRES_DB: "omniviral"
+  POSTGRES_HOST: "postgres-service"
+  POSTGRES_PORT: "5432"
+  REDIS_URL: "redis://redis-service:6379/0"
+  CELERY_BROKER_URL: "redis://redis-service:6379/0"
+  CELERY_RESULT_BACKEND: "redis://redis-service:6379/1"
+  MLFLOW_TRACKING_URI: "http://mlflow-service:5000"
+  CHROMA_HOST: "chromadb-service"
+  CHROMA_PORT: "8000"
+  LLM_PROVIDER: "mock"
+  GATEKEEPER_SCORE_THRESHOLD: "0.65"
+  GATEKEEPER_MAX_CARAG_ITERATIONS: "3"
+  STORAGE_BACKEND: "local"
+  LOCAL_STORAGE_PATH: "/app/data/uploads"
+  INCOMING_VIDEOS_PATH: "/app/incoming/videos"
+  INCOMING_SCRIPTS_PATH: "/app/incoming/scripts"
+  INCOMING_METADATA_PATH: "/app/incoming/metadata"

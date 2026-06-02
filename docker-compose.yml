@@ -1,0 +1,262 @@
+version: "3.9"
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  OmniViral — Full Stack Docker Compose
+# ─────────────────────────────────────────────────────────────────────────────
+
+networks:
+  omniviral-net:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  redis_data:
+  mlflow_data:
+  chroma_data:
+  grafana_data:
+  prometheus_data:
+  minio_data:
+  incoming_data:
+  uploads_data:
+
+services:
+
+  # ─── PostgreSQL ────────────────────────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    container_name: omniviral-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-omni}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-omnipass}
+      POSTGRES_DB: ${POSTGRES_DB:-omniviral}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-omni}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - omniviral-net
+
+  # ─── Redis ─────────────────────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: omniviral-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    networks:
+      - omniviral-net
+
+  # ─── Backend (FastAPI) ─────────────────────────────────────────────────────
+  backend:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.backend
+    container_name: omniviral-backend
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-omni}:${POSTGRES_PASSWORD:-omnipass}@postgres:5432/${POSTGRES_DB:-omniviral}
+      DATABASE_SYNC_URL: postgresql://${POSTGRES_USER:-omni}:${POSTGRES_PASSWORD:-omnipass}@postgres:5432/${POSTGRES_DB:-omniviral}
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/1
+      CHROMA_HOST: chromadb
+      MLFLOW_TRACKING_URI: http://mlflow:5000
+    ports:
+      - "8000:8000"
+    volumes:
+      - uploads_data:/app/data/uploads
+      - incoming_data:/app/incoming
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - omniviral-net
+
+  # ─── Celery Worker ─────────────────────────────────────────────────────────
+  celery_worker:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.backend
+    container_name: omniviral-celery-worker
+    restart: unless-stopped
+    command: celery -A backend.app.core.celery_app worker --loglevel=info --concurrency=4
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-omni}:${POSTGRES_PASSWORD:-omnipass}@postgres:5432/${POSTGRES_DB:-omniviral}
+      DATABASE_SYNC_URL: postgresql://${POSTGRES_USER:-omni}:${POSTGRES_PASSWORD:-omnipass}@postgres:5432/${POSTGRES_DB:-omniviral}
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/1
+      CHROMA_HOST: chromadb
+      MLFLOW_TRACKING_URI: http://mlflow:5000
+    volumes:
+      - uploads_data:/app/data/uploads
+      - incoming_data:/app/incoming
+    depends_on:
+      - backend
+      - redis
+      - postgres
+    networks:
+      - omniviral-net
+
+  # ─── Celery Beat (Scheduler) ───────────────────────────────────────────────
+  celery_beat:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.backend
+    container_name: omniviral-celery-beat
+    restart: unless-stopped
+    command: celery -A backend.app.core.celery_app beat --loglevel=info
+    env_file: .env
+    environment:
+      DATABASE_SYNC_URL: postgresql://${POSTGRES_USER:-omni}:${POSTGRES_PASSWORD:-omnipass}@postgres:5432/${POSTGRES_DB:-omniviral}
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/0
+    depends_on:
+      - redis
+    networks:
+      - omniviral-net
+
+  # ─── Flower (Celery Monitor) ───────────────────────────────────────────────
+  flower:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.backend
+    container_name: omniviral-flower
+    restart: unless-stopped
+    command: celery -A backend.app.core.celery_app flower --port=5555
+    environment:
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/1
+    ports:
+      - "5555:5555"
+    depends_on:
+      - redis
+    networks:
+      - omniviral-net
+
+  # ─── Frontend (React) ─────────────────────────────────────────────────────
+  frontend:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.frontend
+    container_name: omniviral-frontend
+    restart: unless-stopped
+    ports:
+      - "3000:80"
+    depends_on:
+      - backend
+    networks:
+      - omniviral-net
+
+  # ─── ChromaDB ─────────────────────────────────────────────────────────────
+  chromadb:
+    image: chromadb/chroma:0.5.0
+    container_name: omniviral-chromadb
+    restart: unless-stopped
+    volumes:
+      - chroma_data:/chroma/chroma
+    ports:
+      - "8001:8000"
+    environment:
+      IS_PERSISTENT: "TRUE"
+      ANONYMIZED_TELEMETRY: "FALSE"
+    networks:
+      - omniviral-net
+
+  # ─── MLflow ───────────────────────────────────────────────────────────────
+  mlflow:
+    image: python:3.11-slim
+    container_name: omniviral-mlflow
+    restart: unless-stopped
+    command: >
+      sh -c "pip install mlflow psycopg2-binary &&
+             mlflow server
+             --backend-store-uri postgresql://${POSTGRES_USER:-omni}:${POSTGRES_PASSWORD:-omnipass}@postgres:5432/${POSTGRES_DB:-omniviral}
+             --default-artifact-root /mlflow/artifacts
+             --host 0.0.0.0 --port 5000"
+    volumes:
+      - mlflow_data:/mlflow/artifacts
+    ports:
+      - "5000:5000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - omniviral-net
+
+  # ─── Prometheus ───────────────────────────────────────────────────────────
+  prometheus:
+    image: prom/prometheus:v2.52.0
+    container_name: omniviral-prometheus
+    restart: unless-stopped
+    volumes:
+      - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--web.console.libraries=/usr/share/prometheus/console_libraries"
+      - "--web.console.templates=/usr/share/prometheus/consoles"
+    ports:
+      - "9090:9090"
+    networks:
+      - omniviral-net
+
+  # ─── Grafana ──────────────────────────────────────────────────────────────
+  grafana:
+    image: grafana/grafana:10.4.2
+    container_name: omniviral-grafana
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards
+    ports:
+      - "3001:3000"
+    depends_on:
+      - prometheus
+    networks:
+      - omniviral-net
+
+  # ─── MinIO (S3 Compatible) ─────────────────────────────────────────────────
+  minio:
+    image: minio/minio:RELEASE.2024-05-01T01-11-10Z
+    container_name: omniviral-minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin123
+    volumes:
+      - minio_data:/data
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - omniviral-net

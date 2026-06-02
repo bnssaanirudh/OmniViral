@@ -1,0 +1,58 @@
+# ─────────────────────────────────────────────────────────────────────────────
+#  OmniViral Backend — Multi-Stage Dockerfile
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Stage 1: Build / dependency resolution
+FROM python:3.11-slim AS builder
+
+WORKDIR /build
+
+# Install system build deps
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential gcc libpq-dev curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Python dependencies into a prefix
+COPY requirements.txt .
+RUN pip install --prefix=/install --no-cache-dir -r requirements.txt
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Stage 2: Runtime
+FROM python:3.11-slim AS runtime
+
+WORKDIR /app
+
+# Runtime system deps
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libpq-dev ffmpeg curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy installed packages from builder
+COPY --from=builder /install /usr/local
+
+# Copy application code
+COPY backend/ ./backend/
+COPY ml_pipeline/ ./ml_pipeline/
+COPY agents/ ./agents/
+COPY vector_db/ ./vector_db/
+COPY forecasting/ ./forecasting/
+COPY ensemble_models/ ./ensemble_models/
+COPY ingestion/ ./ingestion/
+COPY pyproject.toml .
+
+# Create necessary directories
+RUN mkdir -p /app/data/uploads /app/incoming/videos /app/incoming/scripts \
+    /app/incoming/metadata /app/logs /app/reports
+
+# Non-root user
+RUN useradd -m -u 1000 omniuser && chown -R omniuser:omniuser /app
+USER omniuser
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
+    CMD curl -f http://localhost:8000/health || exit 1
+
+EXPOSE 8000
+
+CMD ["uvicorn", "backend.app.main:app", "--host", "0.0.0.0", "--port", "8000", \
+     "--workers", "4", "--log-level", "info"]
